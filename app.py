@@ -13,14 +13,14 @@ import xlrd
 import xlwt
 from xlutils.copy import copy
 
-APP_VERSION = "v1.1.0"
+APP_VERSION = "v1.2.0"
 
 st.set_page_config(page_title="Tracking Upload Generator", page_icon="📦", layout="centered")
 
 st.markdown("""
 <style>
   @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&display=swap');
-  .block-container { max-width: 680px; padding-top: 2rem; }
+  .block-container { max-width: 680px; padding-top: 3.5rem; }
   .title { font-family: 'IBM Plex Mono', monospace; color: #00ff88; font-size: 1.1rem; font-weight: 700; }
   .sub   { color: #888; font-size: 0.78rem; margin-bottom: 1.5rem; }
   .version-badge {
@@ -47,7 +47,13 @@ st.markdown('<div class="sub">CJ OMS 배송완료 엑셀 → Flat.File.ShippingC
 st.markdown("#### STEP 0 — 아마존 배송확인 템플릿")
 st.caption("Flat.File.ShippingConfirmation.jp (1).xls — 원본 그대로 유지, 데이터만 삽입")
 
-BUILTIN_TPL = os.path.join(os.path.dirname(__file__), "template", "Flat.File.ShippingConfirmation.jp.xls")
+# template/ 폴더 안의 .xls/.xlsx 파일 자동 탐지
+_tpl_dir = os.path.join(os.path.dirname(__file__), "template")
+BUILTIN_TPL = next(
+    (os.path.join(_tpl_dir, f) for f in os.listdir(_tpl_dir)
+     if f.endswith(('.xls', '.xlsx')) and not f.startswith('~')),
+    None
+) if os.path.isdir(_tpl_dir) else None
 
 tpl_file  = st.file_uploader("템플릿 업로드 (repo에 내장된 경우 생략 가능)", type=["xls","xlsx"], key="tpl")
 tpl_bytes = None
@@ -55,7 +61,7 @@ tpl_bytes = None
 if tpl_file:
     tpl_bytes = tpl_file.read()
     st.success(f"✓ 업로드됨: {tpl_file.name}")
-elif os.path.exists(BUILTIN_TPL):
+elif BUILTIN_TPL:
     with open(BUILTIN_TPL, "rb") as f:
         tpl_bytes = f.read()
     st.info(f"ℹ 내장 템플릿 사용: {os.path.basename(BUILTIN_TPL)}")
