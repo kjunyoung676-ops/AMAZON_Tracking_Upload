@@ -1,6 +1,6 @@
 """
 app.py — Tracking Upload Generator
-Streamlit Cloud 배포용
+v1.1.0
 """
 
 import io
@@ -13,6 +13,8 @@ import xlrd
 import xlwt
 from xlutils.copy import copy
 
+APP_VERSION = "v1.1.0"
+
 st.set_page_config(page_title="Tracking Upload Generator", page_icon="📦", layout="centered")
 
 st.markdown("""
@@ -21,10 +23,24 @@ st.markdown("""
   .block-container { max-width: 680px; padding-top: 2rem; }
   .title { font-family: 'IBM Plex Mono', monospace; color: #00ff88; font-size: 1.1rem; font-weight: 700; }
   .sub   { color: #888; font-size: 0.78rem; margin-bottom: 1.5rem; }
+  .version-badge {
+    display: inline-block;
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    background: #1a3a2a;
+    color: #00ff88;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-left: 10px;
+    vertical-align: middle;
+  }
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown('<div class="title">// TRACKING_UPLOAD_GENERATOR</div>', unsafe_allow_html=True)
+st.markdown(
+    f'<div class="title">// TRACKING_UPLOAD_GENERATOR <span class="version-badge">{APP_VERSION}</span></div>',
+    unsafe_allow_html=True
+)
 st.markdown('<div class="sub">CJ OMS 배송완료 엑셀 → Flat.File.ShippingConfirmation.jp 생성</div>', unsafe_allow_html=True)
 
 # ── STEP 0: 아마존 템플릿 ─────────────────────────────────────
@@ -68,7 +84,7 @@ ready = tpl_bytes is not None and oms_file is not None
 btn   = st.button("⚡ 배송확인 파일 생성", type="primary", disabled=not ready, use_container_width=True)
 
 if btn:
-    logs = []
+    logs     = []
     out_buf  = None
     out_name = None
 
@@ -79,13 +95,17 @@ if btn:
             oms_df    = pd.read_excel(io.BytesIO(oms_bytes), dtype=str)
             cols      = oms_df.columns.tolist()
 
-            # 주문번호 컬럼
+            # 쇼핑몰 주문번호 → order-id
             order_col = next(
                 (c for c in cols if '쇼핑몰' in c and '주문번호' in c and '상품' not in c), None
             ) or next(
                 (c for c in cols if '주문번호' in c and '상품' not in c), None
             )
-            # 송장번호 컬럼
+            # 쇼핑몰 상품 주문번호 → order-item-id
+            item_col = next(
+                (c for c in cols if '상품 주문번호' in c or '상품주문번호' in c), None
+            )
+            # 송장번호
             track_col = next(
                 (c for c in cols if '주문송장번호' in c or '송장번호' in c), None
             )
@@ -96,7 +116,11 @@ if btn:
                 raise ValueError(f"송장번호 컬럼 없음. 감지된 컬럼: {', '.join(cols)}")
 
             logs.append(('ok', f"OMS: {len(oms_df)}건 로드"))
-            logs.append(('ok', f"[{order_col}] → order-id / order-item-id (동일값)"))
+            logs.append(('ok', f"[{order_col}] → order-id"))
+            if item_col:
+                logs.append(('ok', f"[{item_col}] → order-item-id"))
+            else:
+                logs.append(('warn', "쇼핑몰 상품 주문번호 컬럼 없음 → order-item-id 공백"))
             logs.append(('ok', f"[{track_col}] → tracking-number"))
             logs.append(('ok', f"ship-date: {ship_date_str}"))
 
@@ -105,21 +129,15 @@ if btn:
             wb = copy(rb)
             ws = wb.get_sheet(1)  # 시트 인덱스 1 = 出荷通知テンプレート_Template
 
-            # 행 0: TemplateType  (건드리지 않음)
-            # 행 1: 일본어 라벨   (건드리지 않음)
-            # 행 2: 영어 컬럼명   (건드리지 않음)
-            # 행 3~: 데이터
-            ROW_START = 3
+            ROW_START = 3  # 0=TemplateType, 1=일본어, 2=영어헤더, 3~=데이터
             row_idx   = ROW_START
             total     = 0
             multi     = 0
 
             for _, r in oms_df.iterrows():
-                order_id  = str(r[order_col]).strip()
-                raw_track = str(r[track_col]).strip()
-
-                # order-item-id = order-id 그대로
-                order_item_id = order_id
+                order_id      = str(r[order_col]).strip()
+                raw_track     = str(r[track_col]).strip()
+                order_item_id = str(r[item_col]).strip() if item_col else ''
 
                 track_list = [t.strip() for t in raw_track.split(',') if t.strip()]
                 if len(track_list) > 1:
@@ -128,7 +146,7 @@ if btn:
 
                 for trk in track_list:
                     ws.write(row_idx, 0, order_id)          # order-id
-                    ws.write(row_idx, 1, order_item_id)     # order-item-id (= order-id)
+                    ws.write(row_idx, 1, order_item_id)     # order-item-id
                     ws.write(row_idx, 2, int(1))            # quantity — 정수형
                     ws.write(row_idx, 3, ship_date_str)     # ship-date
                     ws.write(row_idx, 4, 'SAGAWA')          # carrier-code
@@ -153,7 +171,10 @@ if btn:
     for ltype, msg in logs:
         icon  = {"ok":"✓","warn":"⚠","err":"✗"}[ltype]
         color = {"ok":"#00cc66","warn":"#ff6b35","err":"#ff4444"}[ltype]
-        st.markdown(f'<span style="color:{color};font-family:monospace;font-size:0.82rem">{icon} {msg}</span>', unsafe_allow_html=True)
+        st.markdown(
+            f'<span style="color:{color};font-family:monospace;font-size:0.82rem">{icon} {msg}</span>',
+            unsafe_allow_html=True
+        )
 
     if out_buf and out_name:
         st.success(f"✅ 생성 완료 — {out_name}")
