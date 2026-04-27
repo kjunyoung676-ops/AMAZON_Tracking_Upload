@@ -13,7 +13,7 @@ import xlrd
 import xlwt
 from xlutils.copy import copy
 
-APP_VERSION = "v1.2.0"
+APP_VERSION = "v1.3.0"
 
 st.set_page_config(page_title="Tracking Upload Generator", page_icon="📦", layout="centered")
 
@@ -79,9 +79,8 @@ st.divider()
 
 # ── ship-date ─────────────────────────────────────────────────
 st.markdown("#### ship-date")
-ship_date_val = st.date_input("출하일 (JST)", value=date.today())
-ship_date_str = ship_date_val.strftime('%Y-%m-%d') + 'T00:00:00+09:00'
-st.caption(f"→ `{ship_date_str}`")
+st.caption("OMS 파일의 출고완료일 자동 사용 — 없으면 아래에서 수동 지정")
+ship_date_manual = st.date_input("수동 지정 (출고완료일 없을 때만 사용)", value=date.today())
 
 st.divider()
 
@@ -167,7 +166,7 @@ if btn:
             out_buf  = io.BytesIO()
             wb.save(out_buf)
             out_buf.seek(0)
-            out_name = f"tracking_upload_{ship_date_val.strftime('%Y%m%d')}.xls"
+            out_name = f"tracking_upload_{ship_date_manual.strftime('%Y%m%d')}.xls"
             logs.append(('ok', f"저장: {out_name}"))
 
         except Exception as ex:
