@@ -13,7 +13,7 @@ import xlrd
 import xlwt
 from xlutils.copy import copy
 
-APP_VERSION = "v1.3.0"
+APP_VERSION = "v1.4.0"
 
 st.set_page_config(page_title="Tracking Upload Generator", page_icon="📦", layout="centered")
 
