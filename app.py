@@ -1,11 +1,14 @@
 """
 app.py — Tracking Upload Generator
-v1.1.0
+v1.5.0
+- ship_date_str 정의 버그 수정
+- 출고완료일 자동 읽기
+- 버전 코드 주석 추가
 """
 
 import io
 import os
-from datetime import datetime, date
+from datetime import date
 
 import pandas as pd
 import streamlit as st
@@ -13,7 +16,8 @@ import xlrd
 import xlwt
 from xlutils.copy import copy
 
-APP_VERSION = "v1.4.0"
+# ── 버전 ──────────────────────────────────────────────────────
+APP_VERSION = "v1.5.0"
 
 st.set_page_config(page_title="Tracking Upload Generator", page_icon="📦", layout="centered")
 
@@ -24,15 +28,9 @@ st.markdown("""
   .title { font-family: 'IBM Plex Mono', monospace; color: #00ff88; font-size: 1.1rem; font-weight: 700; }
   .sub   { color: #888; font-size: 0.78rem; margin-bottom: 1.5rem; }
   .version-badge {
-    display: inline-block;
-    font-family: 'IBM Plex Mono', monospace;
-    font-size: 0.7rem;
-    background: #1a3a2a;
-    color: #00ff88;
-    padding: 2px 8px;
-    border-radius: 4px;
-    margin-left: 10px;
-    vertical-align: middle;
+    display: inline-block; font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem; background: #1a3a2a; color: #00ff88;
+    padding: 2px 8px; border-radius: 4px; margin-left: 10px; vertical-align: middle;
   }
 </style>
 """, unsafe_allow_html=True)
@@ -47,7 +45,7 @@ st.markdown('<div class="sub">CJ OMS 배송완료 엑셀 → Flat.File.ShippingC
 st.markdown("#### STEP 0 — 아마존 배송확인 템플릿")
 st.caption("Flat.File.ShippingConfirmation.jp (1).xls — 원본 그대로 유지, 데이터만 삽입")
 
-# template/ 폴더 안의 .xls/.xlsx 파일 자동 탐지
+# template/ 폴더 안의 .xls/.xlsx 자동 탐지
 _tpl_dir = os.path.join(os.path.dirname(__file__), "template")
 BUILTIN_TPL = next(
     (os.path.join(_tpl_dir, f) for f in os.listdir(_tpl_dir)
@@ -114,6 +112,10 @@ if btn:
             track_col = next(
                 (c for c in cols if '주문송장번호' in c or '송장번호' in c), None
             )
+            # 출고완료일 → ship-date
+            date_col = next(
+                (c for c in cols if '출고완료일' in c), None
+            )
 
             if not order_col:
                 raise ValueError(f"주문번호 컬럼 없음. 감지된 컬럼: {', '.join(cols)}")
@@ -122,19 +124,20 @@ if btn:
 
             logs.append(('ok', f"OMS: {len(oms_df)}건 로드"))
             logs.append(('ok', f"[{order_col}] → order-id"))
-            if item_col:
-                logs.append(('ok', f"[{item_col}] → order-item-id"))
-            else:
-                logs.append(('warn', "쇼핑몰 상품 주문번호 컬럼 없음 → order-item-id 공백"))
+            logs.append(('ok', f"[{item_col}] → order-item-id") if item_col else ('warn', "상품 주문번호 컬럼 없음 → order-item-id 공백"))
             logs.append(('ok', f"[{track_col}] → tracking-number"))
-            logs.append(('ok', f"ship-date: {ship_date_str}"))
+            logs.append(('ok', f"[{date_col}] → ship-date (출고완료일 자동)") if date_col else ('warn', f"출고완료일 없음 → 수동 날짜 사용: {ship_date_manual}"))
 
             # ── 템플릿에 데이터 삽입 ──────────────────────────
             rb = xlrd.open_workbook(file_contents=tpl_bytes, formatting_info=True)
             wb = copy(rb)
             ws = wb.get_sheet(1)  # 시트 인덱스 1 = 出荷通知テンプレート_Template
 
-            ROW_START = 3  # 0=TemplateType, 1=일본어, 2=영어헤더, 3~=데이터
+            # 행 0: TemplateType  ← 건드리지 않음
+            # 행 1: 일본어 라벨   ← 건드리지 않음
+            # 행 2: 영어 컬럼명   ← 건드리지 않음
+            # 행 3~: 데이터 삽입
+            ROW_START = 3
             row_idx   = ROW_START
             total     = 0
             multi     = 0
@@ -143,6 +146,16 @@ if btn:
                 order_id      = str(r[order_col]).strip()
                 raw_track     = str(r[track_col]).strip()
                 order_item_id = str(r[item_col]).strip() if item_col else ''
+
+                # ship-date: 출고완료일 우선, 파싱 실패 시 수동 날짜 폴백
+                if date_col:
+                    try:
+                        raw_date      = pd.to_datetime(str(r[date_col])).strftime('%Y-%m-%d')
+                        ship_date_str = raw_date + 'T00:00:00+09:00'
+                    except Exception:
+                        ship_date_str = ship_date_manual.strftime('%Y-%m-%d') + 'T00:00:00+09:00'
+                else:
+                    ship_date_str = ship_date_manual.strftime('%Y-%m-%d') + 'T00:00:00+09:00'
 
                 track_list = [t.strip() for t in raw_track.split(',') if t.strip()]
                 if len(track_list) > 1:
